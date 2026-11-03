@@ -1,0 +1,32 @@
+[project]
+name = "sprelf-image-host"
+version = "v2026.11.03.0"
+authors = [
+    { name = "Christopher Dilley", email = "me@sprelf.com" },
+]
+description = "Image hosting CLI."
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent"
+]
+dependencies = [
+    "ruamel-yaml",
+    "boto3",
+    "boto3-stubs~=1.43.36",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project.urls]
+repository = "https://github.com/cgdilley/sprelf-imagehost.git"
+
+
+[project.scripts]
+sprelf-img = "CLI.Main:main"
+
+[tool.uv]
+package = true

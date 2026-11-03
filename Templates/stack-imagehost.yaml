@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Simple personal image hosting stack (S3 + CloudFront + Route 53)
+
+Parameters:
+  CertificateArn:
+    Type: String
+    Description: ARN of an ACM certificate covering DomainName. Must be in us-east-1 for CloudFront.
+    AllowedPattern: '^arn:aws:acm:us-east-1:\d{12}:certificate/[a-f0-9-]+$'
+    ConstraintDescription: Must be an ACM certificate ARN in us-east-1.
+
+  DomainName:
+    Type: String
+    Description: Fully qualified domain name to serve images from, e.g. images.example.com
+    AllowedPattern: '^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$'
+    ConstraintDescription: Must be a valid domain name.
+
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: ID of the public Route 53 hosted zone that contains DomainName
+
+  BucketName:
+    Type: String
+    Description: Name of the S3 bucket to create for image hosting
+
+  ExpiryDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    Description: Number of days before objects under the t/ prefix expire
+
+Resources:
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireTPrefixObjects
+            Status: Enabled
+            Prefix: t
+            ExpirationInDays: !Ref ExpiryDays
+      
+  ImageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ImageBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipalReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${ImageBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${ImageDistribution}'
+
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-oac'
+        Description: Origin access control for the image bucket
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  ImageDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        Aliases:
+          - !Ref DomainName
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: ImageBucketOrigin
+            DomainName: !GetAtt ImageBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+        DefaultCacheBehavior:
+          TargetOriginId: ImageBucketOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+
+  ImageDnsA:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ImageDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+        EvaluateTargetHealth: false
+
+  ImageDnsAAAA:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt ImageDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+        EvaluateTargetHealth: false
+
+Outputs:
+  BucketName:
+    Description: Name of the image bucket
+    Value: !Ref ImageBucket
+  DistributionDomainName:
+    Description: CloudFront domain name
+    Value: !GetAtt ImageDistribution.DomainName
+  ImageUrl:
+    Description: Base URL for images
+    Value: !Sub 'https://${DomainName}'
