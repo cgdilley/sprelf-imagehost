@@ -26,7 +26,7 @@ repository = "https://github.com/cgdilley/sprelf-imagehost.git"
 
 
 [project.scripts]
-sprelf-img = "CLI.Main:main"
+sprelf-img = "SprelfImageHost.CLI.Main:main"
 
 [tool.uv]
 package = true
